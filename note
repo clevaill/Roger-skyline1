@@ -1,0 +1,274 @@
+********************************************
+*										   *
+*				   SETUP	   			   *
+*									       *
+********************************************
+
+[PORT] = 2222
+
+		passer en root
+	
+	sudo apt-get update
+	sudo apt-get upgrade
+	apt-get install -y sudo net-tools iptables-persistent vim fail2ban sendmail portsentry
+	usermod -aG sudo [login] ou accuser clevaill sudo
+	restart (exit , exit)
+
+		installation des packets
+
+	sudo apt-get update
+	sudo apt-get upgrade
+	sudo apt-get install net-tools
+	sudo apt-get install dnsutils
+	sudo apt-get install iptables-persistent
+	sudo apt-get install vim
+	sudo apt-get install fail2ban
+	sudo apt-get install apache2
+	sudo apt-get install portsentry
+	sudo apt-get install ssmtp -y
+	sudo apt-get install mailutils -y
+	sudo apt-get install postfix -y
+	sudo iptables -F
+
+	********************************************
+	*										   *
+	*				   RESEAU 	   			   *
+	*									       *
+	********************************************
+
+	sudo vim /etc/network/interfaces
+
+		iface enp0s3 inet static
+			address 10.11.0.97
+			netmask 255.255.255.252
+			gateway 10.11.254.254
+
+	sudo reboot
+
+
+	********************************************
+	*										   *
+	*				   SSH  	   			   *
+	*									       *
+	********************************************
+		
+		changer le port
+			sudo vim /etc/ssh/sshd_config
+
+	port 22 -> port [2222]
+	-PermitRootLogin yes -> no
+	-PasswordAuthentification yes
+	-PubkeyAuthentication yes -> yes
+	-PermitEmptyPasswords no
+	AutorizedKeysFile -> .ssh/id_rsa .ssh/id_rsa.pub
+	
+sudo service ssh restart
+sudo service sshd restart
+adduser clecle
+adduser clecle sudo
+Exit
+
+		
+	depuis le terminal:
+
+		mkdir .ssh
+		cd .ssh
+		ssh-keygen -t rsa -b 4096
+		ssh-copy-id -i id_rsa.pub cleclel@10.11.0.97 -p 2222
+		ssh clevaill@10.11.0.97 -p 2222
+
+Puis remettre 
+-PasswordAuthentification yes a no Mais pas obligatoire
+
+Sortez du ssh avec exit et retentez une connexion avec la commande prédédente. La connexion se fait désormais sans mot de passe avec les PublicKeys. Vous retrouverez votre VM dans le fichier .ssh/known_hosts.
+
+
+	********************************************
+	*										   *
+	*				FIREWALL	   		       *
+	*									       *
+	********************************************
+
+	reset les parametres par defaut
+Sudo vi /etc/network/if-pre-up.d/iptables
+#!/bin/bash
+
+iptables-restore < /etc/iptables.test.rules
+
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+iptables -t mangle -F
+iptables -t mangle -X
+
+iptables -P INPUT DROP
+
+iptables -P OUTPUT DROP
+
+iptables -P FORWARD DROP
+
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+iptables -A INPUT -p tcp -i enp0s3 --dport 2222 -j ACCEPT
+
+iptables -A INPUT -p tcp -i enp0s3 --dport 80 -j ACCEPT
+
+iptables -A INPUT -p tcp -i enp0s3 --dport 443 -j ACCEPT
+
+iptables -A OUTPUT -m conntrack ! --ctstate INVALID -j ACCEPT
+
+iptables -I INPUT -i lo -j ACCEPT
+
+iptables -A INPUT -j LOG
+
+iptables -A FORWARD -j LOG
+
+iptables -I INPUT -p tcp --dport 80 -m connlimit --connlimit-above 10 --connlimit-mask 20 -j DROP
+
+exit 0
+
+sudo chmod +x /etc/network/if-pre-up.d/iptables
+Sudo reboot
+
+	********************************************
+	*										   *
+	*				DOS	   		               *
+	*									       *
+	********************************************
+
+	sudo vim /etc/fail2ban/jail.d/defaults-debian.conf
+
+[sshd]
+enabled = true
+port = 2222
+filter = sshd
+logpath = %(sshd_log)s
+maxretry = 3
+bantime = 600
+action = iptables[name=SSH, port=2222, protocol=tcp]
+
+[https-get-dos]
+enabled = true
+port = 443
+filter = https-get-dos
+logpath = /var/log/apache2/access.log
+maxretry = 10
+findtime = 300
+bantime = 300
+action = iptables[name=HTTPS, port=443, protocol=tcp]
+
+[http-get-dos]
+enabled = true
+port = 80
+filter = http-get-dos
+logpath = /var/log/apache2/access.log
+maxretry = 10
+findtime = 300
+bantime = 300
+action = iptables[name=HTTP, port=80, protocol=tcp]
+
+
+sudo vim /etc/fail2ban/filter.d/http-get-dos.conf
+
+[Definition]
+
+# Option: failregex
+# Note: This regex will match any GET entry in your logs, so basically all valid and not valid entries are a match.
+# You should set up in the jail.conf file, the maxretry and findtime carefully in order to avoid false positives.
+
+failregex = ^<HOST> -.*"(GET|POST).*
+
+# Option: ignoreregex
+# Notes.: regex to ignore. If this regex matches, the line is ignored.
+# Values: TEXT
+#
+ignoreregex =
+
+
+
+sudo vim /etc/fail2ban/filter.d/https-get-dos.conf
+
+[Definition]
+
+# Option: failregex
+# Note: This regex will match any GET entry in your logs, so basically all valid and not valid entries are a match.
+# You should set up in the jail.conf file, the maxretry and findtime carefully in order to avoid false positives.
+
+failregex = ^<HOST> -.*"(GET|POST).*
+
+# Option: ignoreregex
+# Notes.: regex to ignore. If this regex matches, the line is ignored.
+# Values: TEXT
+#
+ignoreregex =
+
+
+
+Sudo service fail2ban status == pour check
+Sudo service fail2ban restart
+Sudo iptables -L
+
+Tester 
+sudo tail -f /var/log/fail2ban.log puis sur internet mettre l’ip
+
+	********************************************
+	*										   *
+	*		      PORT SCAN   		           *
+	*									       *
+	********************************************
+
+	lister les ports ouverts de ma machine: sudo netstat -paunt
+
+	sudo apt-get portsentry
+	puis configurer avec le tutoriel :  https://www.noobunbox.net/serveur/securite/installer-et-configurer-portsentry-debian-ubuntu
+	sudo service portsentry restart
+
+
+
+sudo systemctl disable console-setup.service
+sudo systemctl disable keyboard-setup.service
+sudo systemctl disable apt-daily.timer
+sudo systemctl disable apt-daily-upgrade.timer
+sudo systemctl disable syslog.service
+
+	********************************************
+	*										   *
+	*		      SCRIPTS   		           *
+	*									       *
+	********************************************
+
+#!/bin/bash
+apt-get update && apt-get upgrade
+
+chmod +x update_script.sh
+
+sudo vim /etc/crontab
+0 4	* * 1	root	/home/clecle/update_script.sh  >> /var/log/update_script.log
+@reboot		root	/home/clecle/update_script.sh  >> /var/log/update_script.log
+
+Tester 
+Sudo ./update_script.sh
+
+
+sudo vi check_crontab.sh
+
+#!/bin/bash
+file="`md5sum /etc/crontab`"
+file_bu="`md5sum /etc/crontab | sed 's/.$//'`"
+
+if [ "$file" != "$file_bu" ]
+then
+	echo "/etc/crontab edited" | mail -s "/etc/crontab" root
+	exit 1
+fi
+
+
+sudo chmod +x check_crontab.sh
+
+sudo vim /etc/crontab
+0  0	* * *	root	/home/clecle/check_crontab.sh
+
+sudo ./check_crontab.sh
+
+mail -u mail
